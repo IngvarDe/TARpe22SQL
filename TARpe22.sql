@@ -244,3 +244,139 @@ values
 (2, 'Payroll', 'Delhi', 'Ron'),
 (3, 'HR', 'New York', 'Christie'),
 (4, 'Other Department', 'Sydney', 'Cindrella')
+
+
+select Name, Gender, Salary, DepartmentName
+from Employees
+left join Department
+on Employees.DepartmentId = Department.Id
+
+---arvutame [he kuu palgafondi
+select SUM(CAST(Salary as int)) from Employees
+--- min palga saaja ja kui tahame max palga saajat, 
+--- siis min asemele max
+select min(CAST(Salary as int)) from Employees
+
+---lisame veeru nimega City
+alter table Employees
+add City nvarchar(30)
+
+select * from Employees
+
+-- [he kuu palgafond linnade l]ikes
+select City, SUM(CAST(Salary as int)) as TotalSalary 
+from Employees
+group by City
+
+--linnad on t'hestikulises j'rjestuses
+select City, SUM(CAST(Salary as int)) as TotalSalary 
+from Employees
+group by City, Gender
+order by City
+
+---  loeb 'ra, mitu inimest on nimekirjas
+select COUNT(*) from Employees
+
+--- vaatame, et mitu t;;tajat on soo ja linna kaupa
+select Gender, City, SUM(CAST(Salary as int)) as TotalSalary,
+COUNT (Id) as [Total Employees(s)]
+from Employees
+group by Gender, City
+
+--n'itada k]iki mehi linnade kaupa
+select Gender, City, SUM(CAST(Salary as int)) as TotalSalary,
+COUNT (Id) as [Total Employee(s)]
+from Employees
+where Gender = 'Male'
+group by Gender, City
+
+--- n'itab ainult k]ik naised linnade kaupa
+select Gender, City, SUM(CAST(Salary as int)) as TotalSalary,
+COUNT (Id) as [Total Employee(s)]
+from Employees
+group by Gender, City
+having Gender = 'Female'
+
+--- vigane p'ring
+select * from Employees where SUM(CAST(Salary as int)) > 4000
+
+-- t;;tav variant
+select Gender, City, SUM(CAST(Salary as int)) as [Total Salary],
+COUNT (Id) as [Total Employee(s)]
+from Employees group by Gender, City
+having SUM(CAST(Salary as int)) > 4000
+
+--- loome tabeli, milles kahatakse automaatselt nummerdama Id-d
+create table Test1
+(
+Id int identity(1,1),
+Value nvarchar(20)
+)
+
+insert into Test1 values('X')
+
+select * from Test1
+
+---inner join
+-- kuvab neid, kellel on DepartmentName all olemas v''rtus
+select Name, Gender, Salary, DepartmentName
+from Employees
+inner join Department
+on Employees.DepartmentId = Department.Id
+
+--- left join
+--- kuidas saada k]ik andmed Employees-st k'tte
+select Name, Gender, Salary, DepartmentName
+from Employees
+left join Department  --v]ib kasutada ka LEFT OUTER JOIN-i
+on Employees.DepartmentId = Department.Id
+
+--- n'itab k]ik t;;tajad Employee tabelist ja Department tabelist
+--- osakonna, kuhu ei ole kedagi m''ratud
+select Name, Gender, Salary, DepartmentName
+from Employees
+right join Department  --v]ib kasutada ka RIGHT OUTER JOIN-i
+on Employees.DepartmentId = Department.Id
+
+--- kuidas saada k]ikide tabelite v''rtused ]hte p'ringusse
+select Name, Gender, Salary, DepartmentName
+from Employees
+full outer join Department  
+on Employees.DepartmentId = Department.Id
+
+--- v]tab kaks allpool olevat tabelit kokku ja 
+--- korrutab need omavahel l'bi
+select Name, Gender, Salary, DepartmentName
+from Employees
+cross join Department
+
+--- kuidas kuvada ainult need isikud, kellel on Department NULL
+select Name, Gender, Salary, DepartmentName
+from Employees
+left join Department
+on Employees.DepartmentId = Department.Id
+where Employees.DepartmentId is null
+
+--- teine variant
+select Name, Gender, Salary, DepartmentName
+from Employees
+left join Department
+on Employees.DepartmentId = Department.Id
+where Department.Id is null
+
+-- kuidas saame deparmtent tabelis oleva rea, kus on NULL
+select Name, Gender, Salary, DepartmentName
+from Employees
+left join Department
+on Employees.DepartmentId = Department.Id
+where Employees.DepartmentId is null
+
+-- full join
+-- m]lema tabeli mitte-kattuvate v''rtustega read kuvab v'lja
+select Name, Gender, Salary, DepartmentName
+from Employees
+full join Department
+on Employees.DepartmentId = Department.Id
+where Employees.DepartmentId is null
+or Department.Id is null
+
