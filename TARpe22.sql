@@ -380,3 +380,173 @@ on Employees.DepartmentId = Department.Id
 where Employees.DepartmentId is null
 or Department.Id is null
 
+---- 3 tund 28.03.2023
+
+-- tabeli muutmine koodiga, alguses vana tabeli nimi ja 
+-- siis uus soovitud nimi
+sp_rename 'Department123', 'Department'
+
+-- kasutame Employees tabeli asemel l[hendit E ja M
+select E.Name as Employee, M.Name as Manager
+from Employees E
+left join Employees M
+on E.ManagerId = M.Id
+
+
+--alter table Employees
+--add VeeruNimi int
+
+--- inner join
+--- n'itab ainult managerId all olevate isikute v''rtuseid
+select E.Name as Employee, M.Name as Manager
+from Employees E
+inner join Employees M
+on E.ManagerId = M.Id
+
+--- k]ik saavad k]ikide [lemused olla
+select E.Name as Employee, M.Name as Manager
+from Employees E
+cross join Employees M
+
+select ISNULL('Asdasdasd', 'No Manager') as Manager
+
+--- NULL asemel kuvab No Manager
+select coalesce(NULL, 'No Manager') as Manager
+
+--- neil kellel ei ole [lemust, siis paneb neile No Manager teksti
+select E.Name as Employee, ISNULL(M.Name, 'No Manager') as Manager
+from Employees E
+left join Employees M
+on E.ManagerId = M.Id
+
+
+-- lisame tabelisse uued veerud
+alter table Employees
+add MiddleName nvarchar(30)
+alter table Employees
+add LastName nvarchar(30)
+
+select * from Employees
+--- uuendame koodiga v''rtuseid
+update Employees
+set FirstName = 'Tom', MiddleName = 'Nick', LastName = 'Jones'
+where Id = 1
+
+update Employees
+set FirstName = 'Pam', MiddleName = NULL, LastName = 'Anderson'
+where Id = 2
+
+update Employees
+set FirstName = 'John', MiddleName = NULL, LastName = NULL
+where Id = 3
+
+update Employees
+set FirstName = 'Sam', MiddleName = NULL, LastName = 'Smith'
+where Id = 4
+
+update Employees
+set FirstName = NULL, MiddleName = 'Todd', LastName = 'Someone'
+where Id = 5
+
+update Employees
+set FirstName = 'Ben', MiddleName = 'Ten', LastName = 'Sven'
+where Id = 6
+
+update Employees
+set FirstName = 'Sara', MiddleName = NULL, LastName = 'Connor'
+where Id = 7
+
+update Employees
+set FirstName = 'Valarie', MiddleName = 'Balerine', LastName = NULL
+where Id = 8
+
+update Employees
+set FirstName = 'James', MiddleName = '007', LastName = 'Bond'
+where Id = 9
+
+update Employees
+set FirstName = NULL, MiddleName = NULL, LastName = 'Crowe'
+where Id = 10
+
+select * from Employees
+
+--igast reast v]tab esimesena t'idetud lahtri ja kuvab ainult seda
+select  Id, coalesce(FirstName, MiddleName, LastName) as Name
+from Employees
+
+-- loome kaks tabelit
+create table IndianCustomers
+(
+Id int identity(1,1),
+Name nvarchar(25),
+Email nvarchar(25)
+)
+
+create table UKCustomers
+(
+Id int identity(1,1),
+Name nvarchar(25),
+Email nvarchar(25)
+)
+
+--- sisestame tabelisse andmeid
+insert into IndianCustomers(Name, Email) values 
+('Raj', 'R@R.com'),
+('Sam', 'S@S.com')
+
+insert into UKCustomers(Name, Email) values 
+('Ben', 'B@B.com'),
+('Sam', 'S@S.com')
+
+select * from IndianCustomers
+select * from UKCustomers
+
+--- kasutame union all, mis n'itab k]iki ridu
+select Id, Name, Email from IndianCustomers
+union all
+select Id, Name, Email from UKCustomers
+
+--- korduvate v''rtustega read pannakse [hte ja ei korrata
+select Id, Name, Email from IndianCustomers
+union
+select Id, Name, Email from UKCustomers
+
+-- kuidas sorteerida tulemust nime j'rgi
+select Id, Name, Email from IndianCustomers
+union all
+select Id, Name, Email from UKCustomers
+order by Name
+
+--- stored procedure
+create procedure spGetEmployees
+as begin
+	select FirstName, Gender from Employees
+end
+
+-- n[[d saab kasutada selle nimelist stored proceduret
+spGetEmployees
+exec spGetEmployees
+execute spGetEmployees
+
+create proc spGetEmployeesByGenderAndDepartment
+--muutujaid defineeritakse @ m'rgiga
+@Gender nvarchar(20),
+@DepartmentId int
+as begin
+	select FirstName, Gender, DepartmentId from Employees
+	where Gender = @Gender
+	and DepartmentId = @DepartmentId
+end
+
+-- kindlasti tuleb sellele panna parameeter l]ppu
+-- kuna muidu annab errori
+-- kindlasti peab j'lgima j'rjekorda, mis on pandud sp-le
+-- parameetrite osas
+spGetEmployeesByGenderAndDepartment 'Male', 1
+
+
+spGetEmployeesByGenderAndDepartment 
+@DepartmentId = 1 , @Gender = 'Male'
+
+-- saab vaadata sp sisu
+sp_helptext spGetEmployeesByGenderAndDepartment
