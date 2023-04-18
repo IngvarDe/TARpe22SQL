@@ -816,5 +816,67 @@ select DATENAME(DAY, '2023-04-11 11:50:34.910') -- annab stringis oleva päeva nr
 select DATENAME(WEEKDAY, '2023-04-11 11:50:34.910') --annab stringis oleva päeva sõnana
 select DATENAME(MONTH, '2023-04-11 11:50:34.910') --annab stringis oleva kuu sõnana
 
---- 5 tund
+--- 5 tund 18.04.2023
+create function fnComputeAge(@DOB datetime)
+returns nvarchar(50)
+as begin
+	declare @tempdate datetime, @years int, @months int, @days int
+		select @tempdate = @DOB
 
+		select @years = DATEDIFF(YEAR, @tempdate, GETDATE()) - case when (MONTH(@DOB) > 
+		MONTH(GETDATE())) or (MONTH(@DOB)
+		= month(getdate()) and DAY(@DOB) > DAY(GETDATE())) then 1 else 0 end
+		select @tempdate = DATEADD(YEAR, @years, @tempdate)
+
+		select @months = DATEDIFF(MONTH, @tempdate, GETDATE()) - case when DAY(@DOB) > 
+		DAY(GETDATE()) then 1 else 0 end
+		select @tempdate = DATEADD(MONTH, @months, @tempdate)
+
+		select @days = DATEDIFF(DAY, @tempdate, GETDATE())
+
+	declare @Age nvarchar(50)
+		set @Age = 
+		CAST(@years as nvarchar(4)) + ' Years ' 
+		+ CAST(@months as nvarchar(4)) + ' Months '  
+		+ CAST(@days as nvarchar(4)) + ' Days old '
+	return @Age
+end
+
+alter table Employees
+add DateOfBirth datetime
+
+-- saame vaadata kasutajate vanust
+select Id, FirstName, DateOfBirth, dbo.fnComputeAge(DateOfBirth) 
+as Age from Employees
+
+-- kui kasutame seda funktsiooni, siis saame teada tänase päeva vahe
+-- stringis välja toodud kuupäevaga
+select dbo.fnComputeAge('11/11/2010')
+
+-- nr peale DateOfBirth muutujat näitab, et mismoodi kuvada DOB
+select Id, FirstName, DateOfBirth,
+CONVERT(nvarchar, DateOfBirth, 103) as ConvertedDOB
+from Employees
+
+select Id, FirstName, FirstName + ' - ' + CAST(Id as nvarchar)
+as [Name-Id] from Employees
+
+
+select CAST(GETDATE() as date) -- tänane kp
+select CONVERT(date, GETDATE()) -- tänane k
+
+--matemaatilised funktsioonid
+select ABS(-101.5) --abs on absoluutne nr ja tulemuseks saame ilma miinusmärgita tulemuse
+select CEILING(15.2) --tagastab 16 ja suurendab suurema täisarvu suunas
+select CEILING(-15.2) --tagastab -15 ja suurendab suurema positiivse täisarvu suunas
+select floor(15.2) -- ümardab negatiivsema nr poole
+select floor(-15.2) -- ümardab negatiivsema nr poole
+select POWER(2, 4) -- hakkab korrutama 2*2*2*2, esimene nr on korrutatav nr
+select SQUARE(9) --antud juhul 9 ruudus
+select SQRT(81)  --annab vastuse 9, ruutjuur
+
+select RAND() ---annab suvalise nr
+select FLOOR(RAND() * 100) --korrutab sajaga iga suvalise nr
+
+
+---- 6 tund
