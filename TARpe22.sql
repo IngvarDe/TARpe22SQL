@@ -1267,6 +1267,255 @@ group by DepartmentName
 select * from vEmployeesCountByDepartment
 
 --- 7tund 1414
+--view muutmine
+alter view vEmployeesCountByDepartment
+
+-- view kustutamine
+drop view vEmployeesCountByDepartment
+
+--- view uuendused
+-- kas l'bi view saab uuendada andmeid
+
+--- teeme andmete uuenduse, aga enne teeme view
+create view vEmployeesDataExceptSalary
+as
+select Id, FirstName, Gender, DepartmentId
+from Employees
+
+---teeme uuenduse
+update vEmployeesDataExceptSalary
+set FirstName = 'Sam' where Id = 1
+
+select * from vEmployeesDataExceptSalary
+
+--- kustutame ja sisestame andmeid
+delete from vEmployeesDataExceptSalary where Id = 2
+
+insert into vEmployeesDataExceptSalary where Id = 2
+insert into vEmployeesDataExceptSalary (Id, Gender, DepartmentId, FirstName)
+values(2, 'Male', 1, 'Tom')
+
+--- indekseeritud view-d
+-- MS SQL-s on indekseeritud view nime all ja
+-- Oracle-s materjaliseeritud view
+
+create table Product
+(
+Id int primary key,
+Name nvarchar(20),
+UnitPrice int
+)
+
+insert into Product values 
+(1, 'Books', 20),
+(2, 'Pens', 14),
+(3, 'Pencils', 11),
+(4, 'Clips', 10)
 
 
+create table ProductSales
+(
+Id int,
+QuantitySold int
+)
 
+insert into ProductSales values
+(1, 10),
+(3, 23),
+(4, 21),
+(2, 12),
+(1, 13),
+(3, 12),
+(4, 13),
+(1, 11),
+(2, 12),
+(1, 14)
+
+--loome view, mis annab meile veerud TotalSlaes ja TotalTransaction
+
+create view vTotalSalesByProduct
+with schemabinding
+as
+select Name,
+SUM(ISNULL((QuantitySold * UnitPrice), 0)) as TotalSales,
+COUNT_BIG(*) as TotalTransactions
+from dbo.ProductSales
+join dbo.Product
+on dbo.Product.Id = dbo.ProductSales.Id
+group by Name
+
+
+select * from vTotalSalesByProduct
+
+
+--- kui soovid luua indeksi view sisse, siis peab järgima teatud reegleid
+-- 1. view tuleb luua koos schemabinding-ga
+-- 2. kui lisafunktsioon select list viitab väljendile ja selle tulemuseks
+-- võib olla NULL, siis asendusväärtus peaks olema täpsustatud. 
+-- Antud juhul kasutasime ISNULL funktsiooni asendamaks NULL väärtust
+-- 3. kui GroupBy on täpsustatud, siis view select list peab
+-- sisaldama COUNT_BIG(*) väljendit
+-- 4. Baastabelis peaksid view-d olema viidatud kahesosalie nimega
+-- e antud juhul dbo.Product ja dbo.ProductSales.
+
+create unique clustered index UIX_vTotalSalesByProduct_Name
+on vTotalSalesByProduct(Name)
+-- paneb selle view tähestikulisse järjestusse
+
+select * from vTotalSalesByProduct
+
+
+--- view piirangud
+create view vEmployeeDetails
+@Gender nvarchar(20)
+as
+select Id, Name, Gender, DepartmentId
+from
+where Gender = @Gender
+
+-- vaatesse ei saa kaasa panna parameetreid e antud juhul Gender
+
+create function fnEmployeeDetails(@Gender nvarchar(20))
+returns table
+as return
+(select Id, FirstName, Gender, DepartmentId
+from Employees where Gender = @Gender)
+
+--- funktsiooni esile kutsumine koos parameetriga
+select * from fnEmployeeDetails('male')
+
+--- order by kasutamine
+create view vEmployeeDetailsSorted
+as
+select Id, FirstName, Gender, DepartmentId
+from Employees
+order by Id
+
+-- order by-d ei saa kasutada view-s
+
+-- temp table kasutamine
+
+create table ##TestTempTable(Id int, FirstName nvarchar(20), Gender nvarchar(10))
+
+insert into ##TestTempTable values
+(101, 'Martin', 'Male'),
+(102, 'Joe', 'Female'),
+(103, 'Pam', 'Female'),
+(104, 'James', 'Male')
+
+--- kasutame viewd, et kutsuda esile TempTable
+create view vOnTempTable
+as
+select Id, FirstName, Gender
+from ##TestTempTable
+--- temp tables ei saa kasutada view-d
+
+-- Triggerid
+-- kolme tüüpi triggerid: DML, DDL ja LOGON
+
+-- trigger on stored procedure eriliik, mis automaatselt käivitub,
+-- kui mingi tegevus peaks aandmebaasis aset leidma
+
+-- DML - data manipulation language
+-- DML-i põhilised käsklused: insert, update ja delete
+
+-- DML triggereid saab klassifitseerida kahte tüüpi:
+-- 1. After trigger (kutsutakse ka FOR triggeriks)
+-- 2. Instead of trigger (selmet trigger e selle asemel trigger)
+
+--- after trigger käivitub peale sündmust, 
+--- kui kuskil on tehtud insert, update ja delete
+
+-- kasutame Employee tabelit
+
+create table EmployeeAudit
+(
+	Id int identity(1, 1) primary key,
+	AuditData nvarchar(1000)
+)
+
+-- peale ig atöötaja sisestamist tahame teada saada töötaja Id-d, päeva ning aega(millal sisestati)
+-- kõik andmed tulevad EmployeeAudit tabelisse
+
+create trigger trEmployeeForInsert
+on Employees
+for insert
+as begin
+	declare @Id int
+	select @Id = Id from inserted
+	insert into EmployeeAudit
+	values ('New employee with Id = ' + CAST(@Id as nvarchar(5)) + ' is added at '
+	+ CAST(GETDATE() as nvarchar(20)))
+end
+
+select * from Employees
+select * from EmployeeAudit 
+
+insert into Employees values (11, 'Male', 3000, 1, 'Bob')
+
+select * from Employees
+select * from EmployeeAudit 
+
+
+-- update trigger
+create trigger trEmployeeForUpdate
+on Employees
+for update
+as begin
+	--muutujate deklareerimine
+	declare @Id int
+	declare @OldGender nvarchar(20), @NewGender nvarchar(20)
+	declare @OldSalary int, @NewSalary int
+	declare @OldDepartmentId int, @NewDepartmentId int
+	declare @OldFirstName nvarchar(50), @NewFirstName nvarchar(50)
+
+	-- muutuja, kuhu läheb lõpptekst
+	declare @AuditString nvarchar(1000)
+
+	-- laeb kõik uuendatud andmed temp table alla
+	select * into #TempTable
+	from inserted
+
+	-- käib läbi kõik andmed temp tables-s
+	while(exists(select Id from #TempTable))
+	begin
+		set @AuditString = ''
+		-- selekteerib esimese rea andmed temp table-st
+		select top 1 @Id = Id, @NewGender = Gender,
+		@NewSalary = Salary, @NewDepartmentId = DepartmentId,
+		@NewFirstName = FirstName
+		from #TempTable
+		-- võtab vanad andmed kustutatud tabelist
+		select @OldGender = Gender, @OldSalary = Salary, 
+		@OldDepartmentId = DepartmentId, @OldFirstName = FirstName
+		from deleted where Id = @Id
+
+		-- loob auditi stringi dünaamiliselt
+		set @AuditString = 'Employee with Id = ' + cast(@Id as nvarchar(4)) + ' changed '
+		if(@OldGender <> @NewGender)
+			set @AuditString = @AuditString + ' Gender from ' + @OldGender + ' to ' +
+			@NewGender
+
+		if(@OldSalary <> @NewSalary)
+			set @AuditString = @AuditString + ' Salary from ' + CAST(@OldSalary as nvarchar(50)) 
+			+ ' to ' + CAST(@NewSalary as nvarchar(50))
+
+		if(@OldDepartmentId <> @NewDepartmentId)
+			set @AuditString = @AuditString + ' DepartmentId from ' + CAST(@OldDepartmentId as nvarchar(50)) 
+			+ ' to ' + CAST(@NewDepartmentId as nvarchar(50))
+
+		if(@OldFirstName <> @NewFirstName)
+			set @AuditString = @AuditString + ' FirstName from ' + @OldFirstName + ' to ' +
+			@NewFirstName
+
+		insert into dbo.EmployeeAudit values (@AuditString)
+		-- kustutab temp table-st rea, et saaksime liikuda uue rea juurde
+		delete from #TempTable where Id = @Id
+	end
+end
+
+update Employees set FirstName = 'test123456', Salary = 5000
+where Id = 2
+
+select * from EmployeeAudit
+select * from Employees
