@@ -1519,3 +1519,483 @@ where Id = 2
 
 select * from EmployeeAudit
 select * from Employees
+
+
+
+--- insert trigger
+select * from Department
+
+update Department set DepartmentName = 'HR'
+where Id = 3
+
+
+alter view vEmployeeDetails 
+as 
+select Employees.Id, FirstName, Gender, DepartmentName
+from Employees
+join Department
+on Employees.DepartmentId = Department.Id
+
+select * from vEmployeeDetails
+
+create trigger tr_vEmployeeDetails_InsteadOfInsert
+on vEmployeeDetails
+instead of insert
+as
+begin
+
+	declare @DeptId int
+
+	--vaatab, kas on olemas õiget DepartmentId
+	-- vastavas päringus
+	select @DeptId = Department.Id --kui keegi peaks mingi suvalise osakonnanime panema, siis vastus on null
+	from Department
+	join inserted
+	on inserted.DepartmentName = Department.DepartmentName
+
+	--kui departmentId on null, siis annab veateate
+	--ja lõpetab tegevuse
+	if(@DeptId is null) --kui vastus on null, siis annab alloleva vastuse
+	begin
+	raiserror('Invalid Department Name. Statement terminated', 16, 1)
+	return
+	end
+
+	--kui osakonna nimetus on korrektne
+	insert into Employees(Id, FirstName, Gender, DepartmentId)
+	select Id, FirstName, Gender, @DeptId
+	from inserted
+end
+
+select * from EmployeeAudit
+select * from Employees
+select * from Department
+
+insert into vEmployeeDetails values(12, 'asd', 'Female', '234534565678')
+
+delete from Employees where Id = 12;
+
+-- ei saa andmete uuendust teha kuna mõjutab mitut tabelit korraga
+update vEmployeeDetails set FirstName = 'Johny', DepartmentName = 'IT' where Id = 1
+
+--
+update vEmployeeDetails set DepartmentName = 'IT' where Id = 1
+select * from Department
+
+-- loome triggeri
+create trigger tr_vEmployeeDetails_InsteadOfUpdate
+on vEmployeeDetails
+instead of update
+as begin
+	--kui EmployeeId on uuendatud
+	if(update(Id))
+	begin
+		raiserror('Id cannot be changed', 16, 1)
+		return
+	end
+
+	--kui Departmentname on uuendatud
+	if(update(DepartmentName))
+	begin
+		declare @DeptId int
+
+		select @DeptId = Department.Id
+		from Department
+		join inserted
+		on inserted.DepartmentName = Department.DepartmentName
+
+		if(@DeptId is null)
+		begin
+			raiserror('Invalid Department Name', 16, 1)
+			return
+		end
+
+		update Employees set DepartmentId = @DeptId
+		from inserted
+		join Employees
+		on Employees.Id = inserted.id
+	end
+
+	--kui Gender vereust on andmed uuendatud
+	if(update(Gender))
+	begin
+		update Employees set Gender = inserted.Gender
+		from inserted
+		join Employees
+		on Employees.Id = inserted.id
+	end
+
+	--Kui FirstName veerus on muudetud andmeid
+	if(update(FirstName))
+	begin
+		update Employees set FirstName = inserted.FirstName
+		from inserted
+		join Employees
+		on Employees.Id = inserted.id
+	end
+end
+
+update Employees set FirstName = 'John', Gender = 'Female', DepartmentId = 3
+where Id = 1
+
+select * from vEmployeeDetails
+select * from Employees
+select * from Department
+
+-- delete trigger
+
+create view vEmployeeCount
+as
+select DepartmentName, DepartmentId, count(*) as TotalEmployees
+from Employees
+join Department
+on Employees.DepartmentId = Department.Id
+group by DepartmentName, DepartmentId
+
+select * from vEmployeeCount
+
+--näitab , kus on rohkem, kui kaks töötajat
+select DepartmentName, TotalEmployees from vEmployeeCount
+where TotalEmployees >= 2
+
+--temp  e ajutise tabeli loomine ja siis inf kätte saamine
+select DepartmentName, Department.Id, count(*) as TotalEmployees
+into #TempEmployeeCount
+from Employees
+join Department
+on Employees.DepartmentId = Department.Id
+group by DepartmentName, Department.Id
+
+select * from #TempEmployeeCount
+
+--tabeli päring
+select DepartmentName, TotalEmployees
+from #TempEmployeeCount
+where TotalEmployees >= 2
+
+--kustutame temptabeli
+drop table #TempEmployeeCount
+
+--päring algab
+declare @EmployeeCount 
+table(DepartmentName nvarchar(20), DepartmentId int, TotalEmployees int)
+
+insert @EmployeeCount
+select DepartmentName, DepartmentId, count(*) as TotalEmployees
+from Employees
+join Department
+on Employees.DepartmentId = Department.Id
+group by DepartmentName, DepartmentId
+
+select DepartmentName, TotalEmployees
+from @EmployeeCount
+where TotalEmployees >= 2
+-- päring lõppeb
+
+-- sulgudes koondame kõik kokku ja võtame
+-- ainult esimese rea SELECT-i järel oleva kokku
+select DepartmentName, TotalEmployees
+from
+	(
+		select DepartmentName, DepartmentId, count(*) as TotalEmployees
+		from Employees
+		join Department
+		on Employees.DepartmentId = Department.Id
+		group by DepartmentName, DepartmentId
+	)
+as EmployeeCount
+where TotalEmployees >= 2
+
+
+--CTE e common table expression ja on sarnane tuletatud tabelile ja
+-- ei ole talletatud objektile ja kestab päringu aja jooksul
+-- tegemist on nagu temp tabeliga
+
+with EmployeeCount(DepartmentName, DepartmentId, TotalEmployees)
+as 
+	(
+		select DepartmentName, DepartmentId, count(*) as TotalEmployees
+		from Employees
+		join Department
+		on Employees.DepartmentId = Department.Id
+		group by DepartmentName, DepartmentId
+	)
+select DepartmentName, TotalEmployees
+from EmployeeCount
+where TotalEmployees >= 2
+
+
+select * from Employees
+
+with Employees_Name_Gender
+as
+(
+select Id, FirstName, Gender from Employees
+)
+update Employees_Name_Gender set Gender = 'Male' where Id = 1
+
+
+--- saame CTE abil teada, et mitu töötajat on mingis osakonnas
+with EmployeeCount(DepartmentId, TotalEmployees)
+as
+	(
+		select DepartmentId, count(*) as TotalEmployees
+		from Employees
+		group by DepartmentId
+	)
+select DepartmentName, TotalEmployees
+from Department
+join EmployeeCount
+on Department.Id = EmployeeCount.DepartmentId
+order by TotalEmployees
+
+--- saab kasutada ka rohkem, kui ühte CTE-d, aga peab komadega eraldama
+with EmployeesCountBy_Payroll_IT_Dept(DepartmentName, Total)
+as
+	(
+		select DepartmentName, count(Employees.Id) as TotalEmployees
+		from Employees
+		join Department
+		on Employees.DepartmentId = Department.Id
+		where DepartmentName in ('Payroll', 'IT')
+		group by DepartmentName
+	),
+EmployeesCountBy_HR_Admin_Dept(DepartmentName, Total)
+as
+	(
+		select DepartmentName, count(Employees.Id) as TotalEmployees
+		from Employees
+		join Department
+		on Employees.DepartmentId = Department.Id
+		where DepartmentName in ('HR', 'Admin')
+		group by DepartmentName
+	)
+select * from EmployeesCountBy_Payroll_IT_Dept
+union
+select * from EmployeesCountBy_HR_Admin_Dept
+
+---- updatable CTE
+select * from Employees
+
+-- saab muuta Gender veerus olevat väärtust
+with EmployeesByDepartment
+as
+(
+	select Employees.Id, FirstName, Gender, DepartmentName
+	from Employees
+	join Department
+	on Department.Id = Employees.DepartmentId
+)
+update EmployeesByDepartment set Gender = 'Male' where Id = 1
+
+select * from Employees
+
+--- kuvab andmed selliselt, et nr asemel on osakonna nimed
+--- CTE kahe baastabeli põhjal
+with EmployeesByDepartment
+as
+(
+	select Employees.Id, FirstName, Gender, DepartmentName
+	from Employees
+	join Department
+	on Department.Id = Employees.DepartmentId
+)
+select * from EmployeesByDepartment
+
+--muudame Johni tagasi male peale
+
+with EmployeesByDepartment
+as
+(
+	select Employees.Id, FirstName, Gender, DepartmentName
+	from Employees
+	join Department
+	on Department.Id = Employees.DepartmentId
+)
+update EmployeesByDepartment set Gender = 'Male' where Id = 1
+
+--tahame kahte baastabelit muuta
+--aga ei saa e ainult üks baastabel korraga
+with EmployeesByDepartment
+as
+(
+	select Employees.Id, FirstName, Gender, DepartmentName
+	from Employees
+	join Department
+	on Department.Id = Employees.DepartmentId
+)
+update EmployeesByDepartment set Gender = 'Male', DepartmentName = 'IT' where Id = 1
+
+
+--- recrusive CTE
+
+create table Employee
+(
+EmployeeId int primary key,
+Name nvarchar(20),
+ManagerId int
+)
+
+Insert into Employee values 
+(1, 'Tom', 2),
+(2, 'Josh', null),
+(3, 'Mike', 2),
+(4, 'John', 3),
+(5, 'Pam', 1),
+(6, 'Mary', 3),
+(7, 'James', 1),
+(8, 'Sam', 5),
+(9, 'Simon', 1)
+
+
+select emp.Name as [Employee Name],
+isnull(manager.Name, 'Super Boss') as [Manager Name]
+from Employee emp
+left join Employee manager
+on emp.ManagerId = manager.EmployeeId
+
+--- koht, kus tabelis on null, sinna pannakse nimi Super Boss
+--- CTE tabel on ainult päringu ajaks mõeldud tabel
+
+with
+	EmployeeCTE (EmployeeId, Name, ManagerId, [Level])
+	as
+	(
+		select EmployeeId, Name, ManagerId, 1
+		from Employee
+		where ManagerId is null
+
+		union all
+
+		select Employee.EmployeeId, Employee.Name,
+		Employee.ManagerId, EmployeeCTE.[Level] + 1
+		from Employee
+		join EmployeeCTE
+		on Employee.ManagerId = EmployeeCTE.EmployeeId
+	)
+select EmpCTE.Name as Employee, IsNull(MgrCTE.Name, 'Super Boss') as Manager,
+EmpCTE.[Level]
+from EmployeeCTE EmpCTE
+left join EmployeeCTE MgrCTE
+on EmpCTE.ManagerId = MgrCTE.EmployeeId
+
+-- kõigile annab department tabelis ühe numbri juurde ja järjestab employee 
+-- tabelis olevad isikud ära.
+
+--- kokkuvõte CTE-st
+-- 1. kui CTE baseerub ühel tabelil, siis uuendus töötab
+-- 2. kui CTE baseerub mitmel tabelil, siis tuleb veateade
+-- 3. kui CTE baseerub mitmel tabelil ja tahame muuta ainult ühte
+-- tabelit, siis uuendus saab tehtud
+
+---- PIVOT tabel
+
+create table ProductSales
+(
+SalesAgent nvarchar(50),
+SalesCountry nvarchar(50),
+SalesAmount int
+)
+
+insert into ProductSales values
+('Tom', 'UK', 200),
+('John', 'US', 180),
+('John', 'UK', 260),
+('David', 'India', 450),
+('Tom', 'India', 350),
+
+('David', 'US', 200),
+('Tom', 'US', 130),
+('John', 'India', 540),
+('John', 'UK', 120),
+('David', 'UK', 220),
+
+('John', 'UK', 420),
+('David', 'US', 320),
+('Tom', 'US', 340),
+('Tom', 'UK', 660),
+('John', 'India', 430),
+
+('David', 'India', 230),
+('David', 'India', 280),
+('Tom', 'UK', 480),
+('John', 'UK', 360),
+('David', 'UK', 140)
+
+--
+select SalesCountry, SalesAgent, SUM(SalesAmount)
+as Total
+from ProductSales
+group by SalesCountry, SalesAgent
+order by SalesCountry, SalesAgent
+
+--pivot näide
+select SalesAgent, India, Us, UK
+from ProductSales
+pivot
+(
+	sum(SalesAmount) for SalesCountry in ([India], [US], [UK])
+)
+as PivotTable
+
+-- päring muudab unikaalsete veergude väärtust (India, US ja UK)
+-- SalesCountry veerus omaette veergudeks koos veergude SalesAmount liitmisega
+
+create table ProductsWithId
+(
+	Id int primary key,
+	SalesAgent nvarchar(50),
+	SalesCountry nvarchar(50),
+	SalesAmount int
+)
+
+insert into ProductsWithId values
+(1, 'Tom', 'UK', 200),
+(2, 'John', 'US', 180),
+(3, 'John', 'UK', 260),
+(4, 'David', 'India', 450),
+(5, 'Tom', 'India', 350),
+
+(6, 'David', 'US', 200),
+(7, 'Tom', 'US', 130),
+(8, 'John', 'India', 540),
+(9, 'John', 'UK', 120),
+(10, 'David', 'UK', 220),
+
+(11, 'John', 'UK', 420),
+(12, 'David', 'US', 320),
+(13, 'Tom', 'US', 340),
+(14, 'Tom', 'UK', 660),
+(15, 'John', 'India', 430),
+
+(16, 'David', 'India', 230),
+(17, 'David', 'India', 280),
+(18, 'Tom', 'UK', 480),
+(19, 'John', 'UK', 360),
+(20, 'David', 'UK', 140)
+
+select SalesAgent, India, US, UK
+from ProductsWithId
+pivot
+(
+	sum(SalesAmount) for SalesCountry in ([India], [US], [UK])
+)
+as PivotTable
+--- tulemuse põhjuseks on Id veeru olemasolu tabelis
+--- ja mida võetakse arvesse pööramise ja grupeerimise järgi
+
+select SalesAgent, India, US, UK
+from
+(
+	select SalesAgent, SalesCountry, SalesAmount
+	from ProductsWithId
+)
+as SourceTable
+pivot
+(
+	sum(SalesAmount) for SalesCountry in (India, US, UK)
+)
+as PivotTable
+
+-- alustasin 1522
+-- kuni reani 2184
