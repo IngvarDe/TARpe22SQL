@@ -1997,5 +1997,468 @@ pivot
 )
 as PivotTable
 
--- alustasin 1522
--- kuni reani 2184
+-- 07.06.2023
+
+select Id, FromAgentOrCountry, CountryOrAgent
+from
+(
+	select Id, SalesAgent, SalesCountry, SalesAmount
+	from ProductsWithId
+) as SourceTable
+unpivot
+(
+CountryOrAgent for FromAgentOrCountry in 
+(SalesAgent, SalesCountry)
+)
+as PivotTabel
+
+--- transaction
+
+-- jälgib järgmisi samme:
+-- 1. selle algus
+-- 2. käivitab DB käske
+-- 3. kontrollib vigu. Kui on viga, siis taastab algse oleku
+
+create table MailingAddress
+(
+	Id int not null primary key,
+	EmployeeNumber int,
+	HouseNumber nvarchar(50),
+	StreetAddress nvarchar(50),
+	City nvarchar(10),
+	PostalCode nvarchar(20)
+)
+
+insert into MailingAddress
+values (1, 101, '#10', 'King Street', 'Londoon', 'CR27DW')
+
+create table PhysicalAddress
+(
+	Id int not null primary key,
+	EmployeeNumber int,
+	HouseNumber nvarchar(50),
+	StreetAddress nvarchar(50),
+	City nvarchar(10),
+	PostalCode nvarchar(20)
+)
+
+insert into PhysicalAddress
+values (1, 101, '#10', 'King Street', 'Londoon', 'CR27DW')
+
+-- loome sp
+create proc spUpdateAddress
+as begin
+	begin try
+		begin transaction
+			update MailingAddress set City = 'LONDON'
+			where MailingAddress.Id = 1 and EmployeeNumber = 101
+
+			update PhysicalAddress set City = 'LONDON'
+			where PhysicalAddress.Id = 1 and EmployeeNumber = 101
+		commit transaction
+	end try
+	begin catch
+		rollback tran
+	end catch
+end
+
+--käivitame sp
+spUpdateAddress
+
+select * from MailingAddress
+select * from PhysicalAddress
+
+alter proc spUpdateAddress
+as begin
+	begin try
+		begin transaction
+			update MailingAddress set City = 'LONDON 12'
+			where MailingAddress.Id = 1 and EmployeeNumber = 101
+
+			update PhysicalAddress set City = 'LONDON LONDON'
+			where PhysicalAddress.Id = 1 and EmployeeNumber = 101
+		commit transaction
+	end try
+	begin catch
+		rollback tran
+	end catch
+end
+
+--käivitame sp
+spUpdateAddress
+go
+select * from MailingAddress
+go
+select * from PhysicalAddress
+
+-- kui teine uuendus ei lähe läbi, siis esimene ei lähe ka läbi
+-- kõik uuendused peavad läbi minema
+
+--- transaction ACID test
+-- edukas transaction peab läbima ACID testi:
+-- A - atomic e aatomlikus
+-- C - consistent e järjepidevus
+-- I - isolated e isoleeritus
+-- D - durable e vastupidav
+
+--- Atomic - kõik tehingud transactionis on kas edukalt täidetud või need 
+-- lükatakse tagasi. Nt, mõlemad käsud peaksid alati õnnesutma. Andmebaas 
+-- teeb sellisel juhul: võtab esimese update tagasi ja veeretab selle algasendisse
+-- e taastab algsed andmed
+
+--- Consistent - kõik transactioni puudutavad andmed jäetakse loogiliselt 
+-- järjepidevasse olekusse. Nt, kui laos saadaval olevaid esemete hulka 
+-- vähendatakse, siis tabelis peab olema vastav kanne. Inventuur ei saa
+-- lihtsalt kaduda
+
+--- Isolated - transaction peab andmeid mõjutama, sekkumata teistesse
+-- samaaegsetesse transactionitesse. See takistab andmete muutmist, mis 
+-- põhinevad sidumata tabelitel. Nt, muudatused kirjas, mis hiljem tagasi 
+-- muudetakse. Enamik DB-d kasutab tehingute isoleerimise säilitamiseks 
+-- lukustamist
+
+--- Durable - kui muudatus on tehtud, siis see on püsiv. Kui süsteemiviga või
+-- voolukatkestus ilmneb enne käskude komplekti valmimist, siis tühistatkse need 
+-- käsud ja andmed taastakse algsesse olekusse. Taastamine toimub peale 
+-- süsteemi taaskäivitamist.
+
+-- subqueries
+--
+create table Product
+(
+Id int identity primary key,
+Name nvarchar(50),
+Description nvarchar(250)
+)
+
+create table ProductSales
+(
+Id int primary key identity,
+ProductId int foreign key references Product(Id),
+UnitPrice int,
+QuantitySold int
+)
+
+insert into Product values 
+('TV', '52 inch black color LCD TV'),
+('Laptop', 'Very thin black color laptop'),
+('Desktop', 'HP high performance desktop')
+
+insert into ProductSales values
+(3, 450, 5),
+(2, 250, 7),
+(3, 450, 4),
+(3, 450, 9)
+
+select * from Product
+select * from ProductSales
+
+-- kirjutame päringu, mis annab infot müümata toodetest
+select Id, Name, Description
+from Product
+where Id not in (select distinct ProductId from ProductSales)
+
+--enamus juhtudel saab subqueriet asendada JOIN-ga
+--teeme sama päringu JOIN-ga
+select Product.Id, Name, Description
+from Product
+left join ProductSales
+on Product.Id  = ProductSales.ProductId
+where ProductSales.ProductId is null
+
+--teeme subqueri, kus kasutame select-i. Kirjutame päringu, kus
+--saame teada NAME ja TotalQuantity veeru andmeid
+
+select Name,
+(select sum(QuantitySold) from ProductSales where ProductId = Product.Id)
+as [Total Quantity]
+from Product
+order by Name
+
+--sama tulemus JOIN-ga
+select Name, SUM(QuantitySold) as TotalQuantity
+from Product
+left join ProductSales
+on Product.Id = ProductSales.ProductId
+group by Name
+order by Name
+
+-- subquerit saab subquery sisse panna
+-- subquerid on alati sulgudes ja neid nimetatakse sisemisteks päringuteks
+
+--- rohkete andmetega testimise tabel
+
+truncate table Product
+truncate table ProductSales
+
+-- sisestame näidisandmed Product tabelisse:
+declare @Id int
+set @Id = 1
+while(@Id <= 300000)
+begin
+	insert into Product values('Product - ' + CAST(@Id as nvarchar(20)),
+	'Product - ' + CAST(@Id as nvarchar(20)) + ' Description')
+
+	print @Id
+	set @Id = @Id + 1
+end
+
+declare @RandomProductId int
+declare @RandomUnitPrice int
+declare @RandomQuantitySold int
+
+-- ProductId
+declare @LowerLimitForProductId int
+declare @UpperLimitForProductId int
+
+set @LowerLimitForProductId = 1
+set @UpperLimitForProductId = 100000
+
+--UnitPrice
+declare @LowerLimitForUnitPrice int
+declare @UpperLimitForUnitPrice int
+
+set @LowerLimitForUnitPrice = 1
+set @UpperLimitForUnitPrice = 100
+
+--Quantity Sold
+declare @LowerLimitForQuantitySold int
+declare @UpperLimitForQuantitySold int
+
+set @LowerLimitForQuantitySold = 1
+set @UpperLimitForQuantitySold = 10
+
+declare @Counter int
+set @Counter = 1
+
+while(@Counter <= 450000)
+begin
+	select @RandomProductId = ROUND(((@UpperLimitForProductId -
+	@LowerLimitForProductId) * Rand() + @LowerLimitForProductId), 0)
+
+	select @RandomUnitPrice = ROUND(((@UpperLimitForUnitPrice -
+	@LowerLimitForUnitPrice) * Rand() + @LowerLimitForUnitPrice), 0)
+
+	select @RandomQuantitySold = ROUND(((@UpperLimitForQuantitySold -
+	@LowerLimitForQuantitySold) * Rand() + @LowerLimitForQuantitySold), 0)
+
+	insert into ProductSales
+	values(@RandomProductId, @RandomUnitPrice, @RandomQuantitySold)
+
+	print @Counter
+	set @Counter = @Counter + 1
+end
+go
+
+select * from Product
+select * from ProductSales
+
+select Id, Name, Description
+from Product
+where Id in
+(
+select Product.Id from ProductSales
+)
+
+-- teeme cache puhtaks, et uut päringut ei ole 
+-- kuskile vähemällu salvestatud
+checkpoint;
+go
+dbcc DROPCLEANBUFFERS;  -- puhastab päringu cache-i
+go
+dbcc FREEPROCCACHE;  -- puhastab täitva planeeritud cache-i
+go
+
+-- teeme sama tabeli peale inner join päringu
+select distinct Product.Id, Name, Description
+from Product
+inner join ProductSales
+on Product.Id = ProductSales.ProductId
+--päring tehti 1 sekundiga
+-- teeme vahemälu puhtaks
+
+select Id, Name, Description
+from Product
+where not exists(select * from ProductSales where ProductId = Product.Id)
+--1 sek
+--vahemälu puhtaks
+
+select Product.Id, Name, Description
+from Product
+left join ProductSales
+on Product.Id = ProductSales.ProductId
+where ProductSales.ProductId is null
+
+---CURSOR-id
+
+--- realtsiooniliste DB-de haldussüsteemid saavad väga hästi hakkama 
+--- SETS-ga. SETS lubab mitut päringut kombineerida üheks tulemuseks.
+--- Sinna alla käivad UNION, INTERSECT ja EXCEPT.
+
+update ProductSales set UnitPrice = 50 where ProductSales.ProductId = 101
+
+--- kui on vaja rea kaupa andmeid töödelda, siis kõige parem oleks kasutada 
+--- Cursoreid. Samas on need jõudlusele halvad ja võimalusel vältida. 
+--- Soovitav oleks kasutada JOIN-i.
+
+-- Cursorid jagunevad omakorda neljaks:
+-- 1. Forward-Only e edasi-ainult
+-- 2. Static e staatilised
+-- 3. Keyset e võtmele seadistatud
+-- 4. Dynamic e dünaamiline
+
+-- cursori näide:
+if the ProductName = 'Product - 55', set UnitPrice to 55
+
+----------------
+declare @ProductId int
+-- deklareerime cursori
+declare ProductIdCursor cursor for
+select ProductId from ProductSales
+-- open avaldusega täidab select avaldust
+-- ja sisetab tulemuse
+open ProductIdCursor
+
+fetch next from ProductIdCursor into @ProductId
+--- kui tulemuses on veel ridu, siis @@FETCH_STATUS on 0
+while(@@FETCH_STATUS = 0)
+begin
+	declare @ProductName nvarchar(50)
+	select @ProductName = Name from Product where Id = @ProductId
+
+	if(@ProductName = 'Product - 55')
+	begin
+		update ProductSales set UnitPrice = 55 where ProductId = @ProductId
+	end
+
+	else if(@ProductName = 'Product - 65')
+		begin
+		update ProductSales set UnitPrice = 65 where ProductId = @ProductId
+	end
+
+	else if(@ProductName = 'Product - 1000')
+	begin
+		update ProductSales set UnitPrice = 1000 where ProductId = @ProductId
+	end
+
+	fetch next from ProductIdCursor into @ProductId
+end
+-- vabastab rea seadistuse e suleb cursori
+close ProductIdCursor
+-- vabastab ressursid, mis on seotud cursoriga
+deallocate ProductIdCursor
+
+-- vaatame, kas read on uuendatud
+select Name, UnitPrice
+from Product join
+ProductSales on Product.Id = ProductSales.ProductId
+where(Name = 'Product - 55' or Name = 'Product - 65' or Name = 'Product - 1000')
+
+--- asendame cursorid JOIN-ga
+update ProductSales
+set UnitPrice = 
+	case
+		when Name = 'Product - 55' Then 155
+		when Name = 'Product - 65' Then 165
+		when Name like 'Product - 1000' Then 10001
+	end
+from ProductSales
+join Product
+on Product.Id = ProductSales.ProductId
+where Name = 'Product - 55' or Name = 'Product - 65' or
+Name like 'Product - 1000'
+
+--- vaatame tulemust
+select Name, UnitPrice
+from Product join
+ProductSales on Product.Id = ProductSales.ProductId
+where (Name = 'Product - 55' or Name = 'Product - 65' 
+or Name = 'Product - 1000')
+
+--- tabelite info
+
+--nimekiri tabelitest
+select * from sysobjects where xtype = 'S'
+
+select * from sys.tables
+
+--- nimekiri tabelitest ja view-st
+select * from INFORMATION_SCHEMA.TABLES
+
+-- kui soovid erinevaid objektitüüpe vaadata, siis kasuta XTYPE süntaksit
+select distinct XTYPE from sysobjects IT
+select * from sysobjects where XTYPE = 'V'
+-- IT i internal table
+-- P - stored procedure
+-- PK - primary key constraint
+-- S - system table
+-- SQ - service queue
+-- U - user table
+-- V - view
+
+--- annab teada, kas selle nimega tabel on olemas
+if not exists (select * from INFORMATION_SCHEMA.TABLES 
+				where TABLE_NAME = 'EmployeeTest')
+begin
+	create table EmployeeTest
+	(
+	Id int primary key,
+	Name nvarchar(30),
+	Gender nvarchar(10),
+	ManagerId int
+	)
+	print 'Table Employee created'
+	end
+	else
+	begin
+		print 'Table Employee already exists'
+end
+
+--- saab kasutada ka sisseehitatud funktsiooni: OBJECT_ID()
+if OBJECT_ID('Employee') is null
+begin
+	print 'Table created'
+end
+else
+begin
+	print 'Table already exists'
+end
+
+--- tahame sama nimega tabeli ära kustutada ja siis uuesti luua
+if OBJECT_ID('EmployeeTest') is not null
+begin
+	drop table Employee
+end
+create table Employee
+(
+Id int primary key,
+Name nvarchar(30),
+ManagerId int
+)
+
+alter table Employee
+add Email nvarchar(50)
+
+-- kui teha uuesti käivitatavaks veeru kontrollimist ja loomist
+if not exists(select * from INFORMATION_SCHEMA.COLUMNS where
+COLUMN_NAME = 'Emailasd' and TABLE_NAME = 'Employee' and TABLE_SCHEMA = 'dbo')
+begin
+	alter table Employee
+	add Emailasd nvarchar(50)
+end
+else
+begin
+	print 'Column already exists'
+end
+
+--- kontrollime, kas mingi nimega veerg on olemas
+if COL_LENGTH('Employee' , 'Emailasd') is not null
+begin
+	print 'Column already exists'
+end
+else
+begin
+	print 'Column does not exists'
+end
+
+---r 2717
