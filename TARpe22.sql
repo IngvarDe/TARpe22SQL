@@ -2462,3 +2462,148 @@ begin
 end
 
 ---r 2717
+
+---- MERGE
+--- tutvustati aastal 2008, mis lubab teha sisestamist, 
+--- uuendamist ja kustutamist
+--- ei pea kasutama mitut käsku
+
+-- merge puhul peab alati olema vähemalt kaks tabelit
+-- 1. algallika tabel e source table
+-- 2. sihtmärk tabel e target table
+
+-- ühendab sihttabeli lähtetabeliga ja kasutab mõlemas 
+-- tabelis ühist veergu
+-- koodinäide:
+merge [TARGET] as T
+using [SOURCE] as S
+	on [JOIN_CONDITIONS]
+when matched then
+	[UPDATE_STATEMENT]
+when not matched by target then
+	[INSERT_STATEMENT]
+when not matched by source then
+	[DELETE STATEMENT]
+
+
+create table StudentSource
+(
+Id int primary key,
+Name nvarchar(20)
+)
+
+insert into StudentSource values(1, 'Mike')
+insert into StudentSource values(2, 'Sara')
+
+create table StudentTarget
+(
+Id int primary key,
+Name nvarchar(20)
+)
+
+insert into StudentTarget values(1, 'Mike M')
+insert into StudentTarget values(3, 'John')
+
+-- 1. kui leitakse klappiv rida, siis StudentTarget 
+-- tabel on uuendatud
+-- 2. kui read on StudentSource tabelis olemas, 
+-- aga neid ei ole StudentTarget-s,
+-- puuduolevad read sisestatakse 
+-- 3. kui read on olemas StudentTarget-s, aga mitte 
+-- StudentSource-s, siis StudentTarget
+-- tabelis read kustutatakse ära
+
+
+merge StudentTarget as T
+using StudentSource as S
+on T.Id = S.Id
+when matched then
+	update set T.Name = S.Name
+when not matched by target then
+	insert (Id, Name) values(S.Id, S.Name)
+when not matched by source then
+	delete;
+
+select * from StudentTarget
+select * from StudentSource
+
+--tabeli sisu t[hjaks
+truncate table StudentTarget
+truncate table StudentSource
+
+insert into StudentSource values(1, 'Mike')
+insert into StudentSource values(2, 'Sara')
+
+insert into StudentTarget values(1, 'Mike M')
+insert into StudentTarget values(3, 'John')
+
+merge StudentTarget as T
+using StudentSource as S
+on T.Id = S.Id
+when matched then
+	update set T.Name = S.Name
+when not matched by target then
+	insert (Id, Name) values(S.Id, S.Name);
+go
+
+select * from StudentTarget
+select * from StudentSource
+
+-- transaction-d
+-- mis see on?
+-- on rühm käske, mis muudavad DB-s salvestatuid andmeid.
+-- Tehingut käsitletakse
+-- ühe tööüksusena. Kas kõik käsud õnnestuvad või mitte.
+-- Kui üks tehing sellest ebaõnnestub
+-- siis kõik juba muudetud andmed muudetakse tagasi
+
+create table Account
+(
+Id int primary key,
+AccountName nvarchar(25),
+Balance int
+)
+
+insert into Account values(1, 'Mark', 1000)
+insert into Account values(2, 'Mary', 1000)
+
+begin try
+	begin transaction
+		update Account set Balance = Balance - 100 where Id = 1
+		update Account set Balance = Balance + 100 where Id = 2
+	commit transaction
+	print 'Transaction Commited'
+end try
+begin catch
+	rollback tran
+	print 'Transaction rolled back'
+end catch
+
+select * from Account
+
+--- mõned levinumad probleemid:
+-- 1. Dirty read e must lugemine
+-- 2. Lost Updates e kadunud uuendused
+-- 3. Nonreapeatable reads e kordumatud lugemised
+-- 4. Phantom read e fantoom lugmine
+
+--- kõik eelnevad probleemid lahendaks ära, kui lubaksite igal ajal 
+--- korraga ühel kasutajal ühe tehingu teha. Selle tulemusel kõik tehingud
+--- satuvad järjekorda ja neil võib tekkida vajadus kaua oodata, enne
+--- kui võimalus tehingut teha saabub.
+
+--- kui lubada samaaegselt kõik tehingud ära teha, 
+--- siis see omakorda tekitab probleeme
+--- Probleemi lahendamiseks pakub MSSQL server erinevaid 
+--- tehinguisolatsiooni tasemeid,
+--- et tasakaalustada samaaegsete andmete CRUD(create, read, update 
+--- ja delete) probleeme:
+
+-- 1. read uncommited e lugemine ei ole teostatud
+-- 2. read commited e lugemine tehtud
+-- 3. repeatable read e korduv lugemine
+-- 4. snapshot e kuvatõmmis
+-- 5. serializable e serialiseerimine
+
+--- igale juhtumile tuleb läheneda juhtumipõhiselt ja
+--- mida vähem valet lugemist tuleb, seda aeglasem
