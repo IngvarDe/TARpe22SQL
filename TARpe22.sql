@@ -2693,4 +2693,261 @@ set ItemsInStock = @ItemsInStock where Id = 1
 print @ItemsInStock
 commit tran
 
+--- non repeatable read näide
 
+--- see juhtub, kui üks transaction loeb samu andmeid kaks korda
+--- ja teine transaction uuendab neid andmeid esimese ja 
+--- ja teise käsu vahel esimese transactioni jooksutamise ajal
+
+--- esimene transaction
+--set tran isolation level repeatable read
+begin tran
+select ItemsInStock from Inventory where Id = 1
+
+waitfor delay '00:00:10'
+
+select ItemsInStock from Inventory where Id = 1
+commit transaction
+
+---panen n[[d transaction 2 tööle
+
+update Inventory set ItemsInStock = 5
+where Id = 1
+
+
+--- Phantom read näide
+
+create table Employee
+(
+Id int primary key,
+Name nvarchar(25)
+)
+go
+insert into Employee values(1, 'Mark')
+insert into Employee values(3, 'Sara')
+insert into Employee values(100, 'Mary')
+
+select * from Employee
+
+--- transaction 1
+set tran isolation level serializable
+
+begin tran
+select * from Employee where Id between 1 and 3
+
+waitfor delay '00:00:10'
+select * from Employee where id between 1 and 3
+commit tran
+
+---panen kohe teise transactioni tööle
+insert into Employee
+values(2, 'Marcus')
+
+--vastuseks tuleb: Mark ja Sara. Marcust ei näita, aga peaks
+
+-- erinevus korduvlugemisega ja serialiseerimisega
+-- korduv lugemine hoiab ära ainult kordumatud lugemised
+-- serialiseerimine hoiab ära kordumatud lugemised ja
+-- phantom read probleemid
+-- isolatsioonitase tagab, et ühe tehingu loetud andmed ei 
+-- takistaks muid transactioneid
+
+--- DEADLOCK
+--- kui andembaasis tekib ummik
+create table TableA
+(
+Id int identity primary key,
+Name nvarchar(50)
+)
+go
+Insert into TableA values('Mark')
+go
+create table TableB
+(
+Id int identity primary key,
+Name nvarchar(50)
+)
+go
+Insert into TableB values('Mary')
+
+-- transaction 1
+--samm nr 1
+begin tran
+update TableA set Name = 'Mark Transaction 1' where Id = 1
+
+--samm nr 3
+update TableB set Name = 'Mary Transaction 1' where Id = 1
+--samm nr 5
+commit tran
+
+--teine server
+--samm nr 2
+begin tran
+update TableA set Name = 'Mark Transaction 2' where Id = 1
+
+--samm nr 4
+update TableB set Name = 'Mary Transaction 2' where Id = 1
+--samm nr 6
+commit tran
+
+select * from TableA
+select * from TableB
+
+truncate table TableA
+truncate table TableB
+
+--- Kuidas SQL server tuvastab deadlocki?
+--- Lukustatakse serveri lõim, mis töötab vaikimisi iga 5 sek järel
+--- et tuvastada ummikuid. Kui leiab deadlocki, siis langeb 
+--- deadlocki intervall 5 sek-lt 100 millisekundini.
+
+--- mis juhtub deadlocki tuvastamisel
+--- Tuvastamisel lõpetab DB-mootor deadlocki ja valib ühe lõime 
+--- ohvriks. Seejärel keeratakse deadlockiohvri tehing tagasi ja 
+--- tagastatakse rakendusele viga 1205. Ohvri tehingu tagasitõmbamine
+--- vabastab kõik selle transactioni valduses olevad lukud.
+--- See võimaldab teistel transactionitel blokeringut tühistada ja
+--- edasi liikuda.
+
+--- mis on DEADLOCK_PRIORITY
+--- vaikimisi valib SQL server deadlockiohvri tehingu, mille 
+--- tagasivõtmine on kõige odavam (võtab vähem ressurssi). Seanside 
+--- prioriteeti saab muuta SET DEADLOCK_PRIORTY
+
+--- DEADLOCK_PRIORTY
+--- 1. vaikimisi on see Normali peal
+--- 2. Saab seadistada LOW, NORMAL ja HIGH peale
+--- 3. saab seadistada ka nr väärtusena -10-st kuni 10-ni
+
+--- Ohvri valimise kriteeriumid
+--- 1. Kui prioriteedid on erinevad, siis kõige madalama tähtsusega valitakse ohvriks
+--- 2. Kui mõlemal sessioonil on sama prioriteet, siis valitakse ohvriks transaction,
+--- mille tagasi viimine on kõige vähem ressurssi nõudev.
+--- 3. Kui mõlemal sessioonil on sama prioriteet ja sama ressursi kulutamine,
+--- siis ohver valitakse juhuslikuse alusel
+
+truncate table TableA
+truncate table TableB
+
+insert into TableA values('Mark'),
+('Ben'),
+('Todd'),
+('Pam'),
+('Sara'),
+('Mary')
+
+insert into TableB values('Mary')
+
+--- esimene server
+-- transaction 1
+--samm nr 1
+begin tran
+update TableA set Name = Name + 
+'Transaction 1' where Id in (1, 2, 3, 4, 5)
+
+--samm nr 3
+update TableB set Name = Name +
+'Transaction 1' where Id = 1
+
+--samm 5
+commit tran
+
+--- teine server
+--samm nr 2
+set deadlock_priority high
+go
+begin tran
+update TableB set Name =
+Name + 'Transaction 2' where Id = 1
+
+--samm nr 4
+update TableA set Name = 
+Name + 'Transaction 2' where Id in (1, 2, 3, 4, 5)
+
+--samm nr 6
+commit tran 
+
+truncate table TableA
+truncate table TableB
+
+insert into TableA values('Mark')
+insert into TableB values('Mary')
+
+create proc spTransaction1
+as begin
+	begin tran
+	update TableA set Name = 'Mark Transaction 1' where Id = 1
+	waitfor delay '00:00:05'
+	update TableB set Name = 'Mary Transaction 1' where Id = 1
+	commit tran
+end
+
+create proc spTransaction2
+as begin
+	begin tran
+	update TableA set Name = 'Mark Transaction 2' where Id = 1
+	waitfor delay '00:00:05'
+	update TableB set Name = 'Mary Transaction 2' where Id = 1
+	commit tran
+end
+
+--käivitame protseduuri
+exec spTransaction1
+
+--teises serveris
+exec spTransaction2
+
+---errorlogi vaatamine
+exec sp_readerrorlog
+
+-- deadlocki vea käsitlemine try catchiga
+alter proc spTransaction1
+as begin
+	begin tran
+	begin try
+		update TableA set Name = 'Mark Transaction 1' where Id = 1
+		waitfor delay '00:00:05'
+		update TableB set Name = 'Mary Transaction 1' where Id = 1
+
+		commit tran
+		select 'Transaction Successful'
+	end try
+	begin catch
+		--vaatab, kas error on deadlocki oma
+		if(ERROR_NUMBER() = 1205)
+		begin
+			select 'Deadlock. Transaction failed. Please retry1'
+		end
+
+		rollback
+	end catch
+end
+
+-- teise protseduuri muutmine
+alter proc spTransaction2
+as begin
+	begin tran
+	begin try
+		update TableB set Name = 'Mark Transaction 2' where Id = 1
+		waitfor delay '00:00:05'
+		update TableA set Name = 'Mary Transaction 2' where Id = 1
+
+		commit tran
+		select 'Transaction Successful'
+	end try
+	begin catch
+		--vaatab, kas error on deadlocki oma
+		if(ERROR_NUMBER() = 1205)
+		begin
+			select 'Deadlock. Transaction failed. Please retry2'
+		end
+
+		rollback
+	end catch
+end
+
+-- esimene server
+exec spTransaction1
+
+-- teine server
+exec spTransaction2
